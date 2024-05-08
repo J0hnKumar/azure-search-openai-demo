@@ -13,16 +13,20 @@ param publicNetworkAccess string = 'Enabled'
 param sku object = {
   name: 'S0'
 }
+param ipRules array = []
+@allowed([ 'None', 'AzureServices'])
+param bypass string = 'None'
 
-param allowedIpRules array = []
-param networkAcls object = empty(allowedIpRules) ? {
+var allowedIpRules = [for rule in ipRules: { value: rule }]
+var networkAcls = empty(allowedIpRules) ? {
   defaultAction: 'Allow'
 } : {
   ipRules: allowedIpRules
   defaultAction: 'Deny'
 }
+var networkAclsWithBypass = union(networkAcls, { bypass: bypass })
 
-resource account 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
+resource account 'Microsoft.CognitiveServices/accounts@2023-10-01-preview' = {
   name: name
   location: location
   tags: tags
@@ -30,7 +34,8 @@ resource account 'Microsoft.CognitiveServices/accounts@2023-05-01' = {
   properties: {
     customSubDomainName: customSubDomainName
     publicNetworkAccess: publicNetworkAccess
-    networkAcls: networkAcls
+    // Document Intelligence (FormRecognizer) does not support bypass in network acls
+    networkAcls: kind == 'FormRecognizer' ? networkAcls : networkAclsWithBypass
     disableLocalAuth: disableLocalAuth
   }
   sku: sku

@@ -176,6 +176,18 @@
     "allowedOrigin": {
       "value": "${ALLOWED_ORIGIN}"
     },
+    "allowedIp": {
+      "value": "${ALLOWED_IP}"
+    },
+    "publicNetworkAccess": {
+      "value": "${AZURE_PUBLIC_NETWORK_ACCESS=Enabled}"
+    },
+    "usePrivateEndpoint": {
+      "value": "${AZURE_USE_PRIVATE_ENDPOINT=false}"
+    },
+    "bypass": {
+      "value": "${AZURE_NETWORK_BYPASS=AzureServices}"
+    },
     "useIntegratedVectorization": {
       "value": "${USE_FEATURE_INT_VECTORIZATION}"
     },

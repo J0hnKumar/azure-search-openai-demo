@@ -8,6 +8,7 @@ param applicationInsightsName string = ''
 param appServicePlanId string
 param keyVaultName string = ''
 param managedIdentity bool = !empty(keyVaultName)
+param virtualNetworkSubnetId string = ''
 
 // Runtime Properties
 @allowed([
@@ -39,6 +40,7 @@ param scmDoBuildDuringDeployment bool = false
 param use32BitWorkerProcess bool = false
 param ftpsState string = 'FtpsOnly'
 param healthCheckPath string = ''
+param ipRules array = []
 param clientAppId string = ''
 param serverAppId string = ''
 @secure()
@@ -55,32 +57,65 @@ var allMsftAllowedOrigins = !(empty(clientAppId)) ? union(msftAllowedOrigins, [l
 var requiredScopes = ['api://${serverAppId}/.default', 'openid', 'profile', 'email', 'offline_access']
 var requiredAudiences = ['api://${serverAppId}']
 
+var coreConfig = {
+  linuxFxVersion: linuxFxVersion
+  alwaysOn: alwaysOn
+  ftpsState: ftpsState
+  appCommandLine: appCommandLine
+  numberOfWorkers: numberOfWorkers != -1 ? numberOfWorkers : null
+  minimumElasticInstanceCount: minimumElasticInstanceCount != -1 ? minimumElasticInstanceCount : null
+  minTlsVersion: '1.2'
+  use32BitWorkerProcess: use32BitWorkerProcess
+  functionAppScaleLimit: functionAppScaleLimit != -1 ? functionAppScaleLimit : null
+  healthCheckPath: healthCheckPath
+  cors: {
+    allowedOrigins: union(allMsftAllowedOrigins, allowedOrigins)
+  }
+  clientAffinityEnabled: clientAffinityEnabled
+  httpsOnly: true
+}
+
+var allowedNetworkRules = [for (rule, i) in ipRules: {
+  ipAddress: rule
+  action: 'Allow'
+  tag: 'Default'
+  priority: 100 * i
+  description: 'Allow specificed network range'
+}]
+
+var networkRules = !empty(allowedNetworkRules) ? {
+  ipSecurityRestrictions: concat(
+    allowedNetworkRules,
+    [
+      {
+        ipAddress: 'Any'
+        action: 'Deny'
+        priority: 2147483647
+        name: 'Deny all'
+        description: 'Deny all access'
+      }
+    ]
+  )
+  ipSecurityRestrictionsDefaultAction: 'Deny'  
+} : {}
+
+var appServiceProperties = {
+  serverFarmId: appServicePlanId
+  siteConfig: union(coreConfig, networkRules)
+  clientAffinityEnabled: clientAffinityEnabled
+  httpsOnly: true
+  // Always route traffic through the vnet
+  // See https://learn.microsoft.com/azure/app-service/configure-vnet-integration-routing#configure-application-routing
+  vnetRouteAllEnabled: !empty(virtualNetworkSubnetId)
+  virtualNetworkSubnetId: !empty(virtualNetworkSubnetId) ? virtualNetworkSubnetId : null
+}
+
 resource appService 'Microsoft.Web/sites@2022-03-01' = {
   name: name
   location: location
   tags: tags
   kind: kind
-  properties: {
-    serverFarmId: appServicePlanId
-    siteConfig: {
-      linuxFxVersion: linuxFxVersion
-      alwaysOn: alwaysOn
-      ftpsState: ftpsState
-      minTlsVersion: '1.2'
-      appCommandLine: appCommandLine
-      numberOfWorkers: numberOfWorkers != -1 ? numberOfWorkers : null
-      minimumElasticInstanceCount: minimumElasticInstanceCount != -1 ? minimumElasticInstanceCount : null
-      use32BitWorkerProcess: use32BitWorkerProcess
-      functionAppScaleLimit: functionAppScaleLimit != -1 ? functionAppScaleLimit : null
-      healthCheckPath: healthCheckPath
-      cors: {
-        allowedOrigins: union(allMsftAllowedOrigins, allowedOrigins)
-      }
-    }
-    clientAffinityEnabled: clientAffinityEnabled
-    httpsOnly: true
-  }
-
+  properties: appServiceProperties
   identity: { type: managedIdentity ? 'SystemAssigned' : 'None' }
 
   resource configAppSettings 'config' = {
@@ -166,6 +201,7 @@ resource applicationInsights 'Microsoft.Insights/components@2020-02-02' existing
   name: applicationInsightsName
 }
 
+output id string = appService.id
 output identityPrincipalId string = managedIdentity ? appService.identity.principalId : ''
 output name string = appService.name
 output uri string = 'https://${appService.properties.defaultHostName}'
